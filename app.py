@@ -22,7 +22,6 @@ import anthropic
 from datetime import datetime, timedelta
 import math
 import warnings
-import requests
 warnings.filterwarnings("ignore")
 
 # ──────────────────────────────────────────────
@@ -111,33 +110,26 @@ def color_tag(val, good_above=None, bad_above=None):
     except:
         return val
 
-def _make_session() -> requests.Session:
-    """Vlastní requests session s User-Agent hlavičkou.
-    Doporučený postup pro yfinance — zabraňuje RateLimitError (429)."""
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-    })
-    return session
-
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_ticker(ticker: str):
-    session = _make_session()
-    t = yf.Ticker(ticker.upper(), session=session)
-    info   = t.info
-    hist   = t.history(period="1y", interval="1d")
-    hist5y = t.history(period="5y", interval="3mo")
-    inc    = t.financials
-    bal    = t.balance_sheet
-    cf     = t.cashflow
-    shares = t.get_shares_full(start="2018-01-01")
-    return info, hist, hist5y, inc, bal, cf, shares
+    try:
+        # yfinance automaticky použije curl_cffi (pokud je nainstalována),
+        # čímž obejde rate-limiting Yahoo Finance bez ruční správy session.
+        t = yf.Ticker(ticker.upper())
+        info = t.info
+        if not info:
+            st.error("Nepodařilo se získat data pro tento ticker.")
+            return None, None, None, None, None, None, None
+        hist   = t.history(period="1y", interval="1d")
+        hist5y = t.history(period="5y", interval="3mo")
+        inc    = t.financials
+        bal    = t.balance_sheet
+        cf     = t.cashflow
+        shares = t.get_shares_full(start="2018-01-01")
+        return info, hist, hist5y, inc, bal, cf, shares
+    except Exception as e:
+        st.error(f"Chyba při stahování dat: {e}")
+        return None, None, None, None, None, None, None
 
 # ──────────────────────────────────────────────
 # SIDEBAR
