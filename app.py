@@ -14,7 +14,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import math
 import warnings
@@ -50,49 +49,46 @@ with st.sidebar:
 # THEME
 # ──────────────────────────────────────────────
 if theme == "Dark":
-    BG       = "#0e1117"
-    CARD     = "#1a1d27"
-    CARD2    = "#12151e"
-    TEXT     = "#ffffff"
-    SUB      = "#aaaaaa"
-    BORDER   = "#2a2d3a"
-    ACCENT   = "#00c4b4"
-    PLOT_BG  = "#1a1d27"
-    GRID_CLR = "#2a2d3a"
-    TABLE_HDR= "#1a1d27"
-    TABLE_ROW= "#0e1117"
-    TABLE_ALT= "#12151e"
-    BTN_BG   = "#1a1d27"
-    BTN_ACT  = "#00c4b4"
-    BTN_TXT  = "#ffffff"
-    BTN_ATXT = "#0e1117"
+    BG        = "#0e1117"
+    CARD      = "#1a1d27"
+    CARD2     = "#12151e"
+    TEXT      = "#ffffff"
+    SUB       = "#aaaaaa"
+    BORDER    = "#2a2d3a"
+    ACCENT    = "#00c4b4"
+    PLOT_BG   = "#0e1117"
+    BTN_BG    = "#1a1d27"
+    BTN_ACT   = "#00c4b4"
+    BTN_TXT   = "#ffffff"
+    BTN_ATXT  = "#0e1117"
+    TABLE_HDR = "#1a1d27"
+    TABLE_ROW = "#0e1117"
+    TABLE_ALT = "#12151e"
 else:
-    BG       = "#f5f7fa"
-    CARD     = "#ffffff"
-    CARD2    = "#eef1f5"
-    TEXT     = "#000000"
-    SUB      = "#555555"
-    BORDER   = "#d0d5dd"
-    ACCENT   = "#0077b6"
-    PLOT_BG  = "#ffffff"
-    GRID_CLR = "#e0e0e0"
-    TABLE_HDR= "#e8ecf0"
-    TABLE_ROW= "#ffffff"
-    TABLE_ALT= "#f5f7fa"
-    BTN_BG   = "#ffffff"
-    BTN_ACT  = "#0077b6"
-    BTN_TXT  = "#333333"
-    BTN_ATXT = "#ffffff"
+    BG        = "#f5f7fa"
+    CARD      = "#ffffff"
+    CARD2     = "#eef1f5"
+    TEXT      = "#000000"
+    SUB       = "#555555"
+    BORDER    = "#d0d5dd"
+    ACCENT    = "#0077b6"
+    PLOT_BG   = "#ffffff"
+    BTN_BG    = "#ffffff"
+    BTN_ACT   = "#0077b6"
+    BTN_TXT   = "#333333"
+    BTN_ATXT  = "#ffffff"
+    TABLE_HDR = "#e8ecf0"
+    TABLE_ROW = "#ffffff"
+    TABLE_ALT = "#f5f7fa"
 
-GREEN = "#00c853"
-RED   = "#ff1744"
-YELLOW= "#ffd600"
+GREEN  = "#00c853"
+RED    = "#ff1744"
+YELLOW = "#ffd600"
 
 st.markdown(f"""
 <style>
 html, body, [data-testid="stAppViewContainer"] {{
-    background-color: {BG} !important;
-    color: {TEXT} !important;
+    background-color: {BG} !important; color: {TEXT} !important;
 }}
 [data-testid="stSidebar"] {{ background-color: {CARD2} !important; }}
 [data-testid="stAppViewContainer"] p,
@@ -101,35 +97,18 @@ html, body, [data-testid="stAppViewContainer"] {{
 [data-testid="stAppViewContainer"] label,
 [data-testid="stAppViewContainer"] div {{ color: {TEXT} !important; }}
 h1,h2,h3,h4,h5,h6 {{ color: {TEXT} !important; }}
-[data-testid="stDataFrame"] table {{ background:{TABLE_ROW} !important; color:{TEXT} !important; border-collapse:collapse; }}
-[data-testid="stDataFrame"] th {{ background:{TABLE_HDR} !important; color:{TEXT} !important; border:1px solid {BORDER}; padding:6px 12px; }}
-[data-testid="stDataFrame"] td {{ background:{TABLE_ROW} !important; color:{TEXT} !important; border:1px solid {BORDER}; padding:6px 12px; }}
+[data-testid="stDataFrame"] table  {{ background:{TABLE_ROW} !important; color:{TEXT} !important; border-collapse:collapse; }}
+[data-testid="stDataFrame"] th     {{ background:{TABLE_HDR} !important; color:{TEXT} !important; border:1px solid {BORDER}; padding:6px 12px; }}
+[data-testid="stDataFrame"] td     {{ background:{TABLE_ROW} !important; color:{TEXT} !important; border:1px solid {BORDER}; padding:6px 12px; }}
 [data-testid="stDataFrame"] tr:nth-child(even) td {{ background:{TABLE_ALT} !important; }}
-.metric-card {{ background:{CARD}; border-radius:10px; padding:16px 20px; margin-bottom:10px; border-left:3px solid {ACCENT}; }}
+.metric-card  {{ background:{CARD}; border-radius:10px; padding:16px 20px; margin-bottom:10px; border-left:3px solid {ACCENT}; }}
 .metric-label {{ color:{SUB}; font-size:12px; text-transform:uppercase; letter-spacing:1px; }}
 .metric-value {{ font-size:22px; font-weight:700; color:{TEXT}; }}
 .section-header {{ font-size:20px; font-weight:700; border-bottom:1px solid {BORDER}; padding-bottom:6px; margin-top:24px; margin-bottom:14px; color:{ACCENT}; }}
 .analysis-box {{ background:{CARD}; border-radius:12px; padding:24px 28px; border:1px solid {BORDER}; line-height:1.8; color:{TEXT}; }}
-.pillar {{ background:{CARD2}; border-radius:8px; padding:14px 18px; margin-bottom:10px; border-left:3px solid {YELLOW}; color:{TEXT}; }}
+.pillar       {{ background:{CARD2}; border-radius:8px; padding:14px 18px; margin-bottom:10px; border-left:3px solid {YELLOW}; color:{TEXT}; }}
 .pillar-title {{ font-weight:700; color:{YELLOW}; margin-bottom:6px; }}
 .pillar-body  {{ color:{TEXT}; font-size:14px; line-height:1.7; }}
-
-/* Time Range Button Bar */
-.tr-bar {{
-    display: flex; gap: 6px; flex-wrap: wrap;
-    margin-bottom: 8px;
-}}
-.tr-btn {{
-    background: {BTN_BG}; color: {BTN_TXT};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 4px 12px; font-size: 13px; font-weight: 600;
-    cursor: pointer; transition: all .15s;
-}}
-.tr-btn:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
-.tr-btn.active {{
-    background: {BTN_ACT}; color: {BTN_ATXT};
-    border-color: {BTN_ACT};
-}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -177,9 +156,9 @@ def calc_buyback_yield(shares_full, curr_price):
     if shares_full is None or shares_full.empty: return 0.0, "N/A", False
     s = shares_full.sort_index()
     if len(s) < 2: return 0.0, "N/A", False
-    s_now  = float(s.iloc[-1])
-    cutoff = s.index[-1] - timedelta(days=365)
-    s_1y   = s[s.index <= cutoff]
+    s_now    = float(s.iloc[-1])
+    cutoff   = s.index[-1] - timedelta(days=365)
+    s_1y     = s[s.index <= cutoff]
     if s_1y.empty: return 0.0, "N/A", False
     s_1y_val = float(s_1y.iloc[-1])
     if s_1y_val <= 0: return 0.0, "N/A", False
@@ -206,37 +185,46 @@ if "tr_selected" not in st.session_state:
     st.session_state.tr_selected = "1Y"
 
 # ──────────────────────────────────────────────
-# DATA LOADING
+# DATA LOADING  — vrací POUZE serializovatelné typy
 # ──────────────────────────────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_ticker(ticker: str):
     """
-    Vrací POUZE serializovatelná data (dict, DataFrame, Series).
-    Objekt yf.Ticker() se vytvoří lokálně, data se vytáhnou a objekt se zahodí.
+    Vytvoří yf.Ticker() lokálně, vytáhne data a zahodí objekt.
+    Vrací: info (dict), inc (DataFrame), bal (DataFrame),
+           cf (DataFrame), shares (DataFrame/Series).
+    Objekt Ticker se NIKDY nevrací — je neserializovatelný.
     """
     try:
-        t = yf.Ticker(ticker.upper())          # lokální objekt – NIKDY se nevrací
-        info = t.info
-        if not info or (not info.get("regularMarketPrice") and not info.get("currentPrice")):
+        t      = yf.Ticker(ticker.upper())   # lokální – nebude vrácen
+        info   = dict(t.info)                # dict  ✓
+        inc    = t.financials                # DataFrame ✓
+        bal    = t.balance_sheet             # DataFrame ✓
+        cf     = t.cashflow                  # DataFrame ✓
+        shares = t.get_shares_full(start="2018-01-01")  # Series ✓
+        if not info or (not info.get("regularMarketPrice")
+                        and not info.get("currentPrice")):
             return None, None, None, None, None
-        inc    = t.financials                  # DataFrame
-        bal    = t.balance_sheet               # DataFrame
-        cf     = t.cashflow                    # DataFrame
-        shares = t.get_shares_full(start="2018-01-01")  # Series / DataFrame
-        # t je zde zahozeno – garbage collector ho uvolní
         return info, inc, bal, cf, shares
+        # t je zde zahozeno – gc ho uvolní
     except Exception as e:
         st.error(f"Chyba při stahování dat: {e}")
         return None, None, None, None, None
 
+
 @st.cache_data(ttl=300, show_spinner=False)
-def load_hist(ticker: str, period: str, interval: str):
+def load_hist(ticker: str, period: str, interval: str) -> pd.DataFrame:
+    """Stáhne OHLCV historii pro zvolené období. Vrací DataFrame."""
     try:
         t = yf.Ticker(ticker.upper())
         return t.history(period=period, interval=interval)
     except:
         return pd.DataFrame()
 
+
+# ──────────────────────────────────────────────
+# LOAD BASE DATA
+# ──────────────────────────────────────────────
 with st.spinner(f"Načítám data pro **{ticker_input}**…"):
     info, inc, bal, cf, shares_full = load_ticker(ticker_input)
 
@@ -259,14 +247,14 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1 – DASHBOARD
 # ══════════════════════════════════════════════
 with tab1:
-    name      = safe(info, "longName", ticker_input)
-    sector    = safe(info, "sector")
-    industry  = safe(info, "industry")
-    website   = safe(info, "website")
-    employees = f"{info['fullTimeEmployees']:,}" if info.get("fullTimeEmployees") else "N/A"
+    name       = safe(info, "longName", ticker_input)
+    sector     = safe(info, "sector")
+    industry   = safe(info, "industry")
+    website    = safe(info, "website")
+    employees  = f"{info['fullTimeEmployees']:,}" if info.get("fullTimeEmployees") else "N/A"
     prev_close = float(info.get("previousClose") or curr_price)
-    chg = ((curr_price - prev_close) / prev_close * 100) if prev_close else 0
-    chg_str = f"{'▲' if chg >= 0 else '▼'} {abs(chg):.2f}%"
+    chg        = ((curr_price - prev_close) / prev_close * 100) if prev_close else 0
+    chg_str    = f"{'▲' if chg >= 0 else '▼'} {abs(chg):.2f}%"
 
     st.markdown(f"## {name} &nbsp; `{ticker_input}`")
 
@@ -278,58 +266,55 @@ with tab1:
     mcard(c5, "Zaměstnanci",   employees)
     st.markdown(f"**Industrie:** {industry} &nbsp;|&nbsp; **Web:** [{website}]({website})")
 
-    # ── TIME RANGE SELECTOR ───────────────────
+    # ── SECTION HEADER ───────────────────────
     st.markdown('<div class="section-header">📉 Graf ceny</div>', unsafe_allow_html=True)
 
-    # Render tlačítek jako Streamlit columns (čisté, bez JS)
+    # ── TIME RANGE BUTTONS ────────────────────
     btn_cols = st.columns(len(RANGES))
-    for i, (label, _) in enumerate(RANGES.items()):
+    for i, label in enumerate(RANGES):
         is_active = (label == st.session_state.tr_selected)
-        btn_style = (
-            f"background-color:{BTN_ACT};color:{BTN_ATXT};border:1px solid {BTN_ACT};"
-            if is_active else
-            f"background-color:{BTN_BG};color:{BTN_TXT};border:1px solid {BORDER};"
-        )
         if btn_cols[i].button(
-            label,
-            key=f"tr_{label}",
-            use_container_width=True,
+            label, key=f"tr_{label}", use_container_width=True,
+            type="primary" if is_active else "secondary"
         ):
             st.session_state.tr_selected = label
             st.rerun()
 
-    # Načti historii pro vybrané období
+    # ── LOAD HISTORY FOR SELECTED RANGE ──────
     period, interval = RANGES[st.session_state.tr_selected]
     hist = load_hist(ticker_input, period, interval)
 
     # ── AREA CHART ────────────────────────────
     if hist is not None and not hist.empty:
-        close = hist["Close"]
+        close       = hist["Close"].dropna()
         first_price = float(close.iloc[0])
         last_price  = float(close.iloc[-1])
-        is_up = last_price >= first_price
+        is_up       = last_price >= first_price
 
         line_color = GREEN if is_up else RED
-        # RGBA pro gradient výplň
-        fill_color_top    = f"rgba(0,200,83,0.25)"  if is_up else f"rgba(255,23,68,0.25)"
-        fill_color_bottom = f"rgba(0,200,83,0.0)"   if is_up else f"rgba(255,23,68,0.0)"
+        # Jemné RGBA výplně — průhlednost 0.15 pro subtilní stínování
+        fill_top    = "rgba(0,200,83,0.15)"  if is_up else "rgba(255,23,68,0.15)"
+        fill_bottom = "rgba(0,200,83,0.0)"   if is_up else "rgba(255,23,68,0.0)"
+
+        # Dynamické meze osy Y — Google Finance style (žádné zero-base)
+        y_min = float(close.min()) * 0.99
+        y_max = float(close.max()) * 1.01
 
         fig = go.Figure()
-
-        # Gradient výplň: dvě vrstvy (upper fill + lower transparent)
         fig.add_trace(go.Scatter(
-            x=close.index, y=close.values,
+            x=close.index,
+            y=close.values,
             mode="lines",
-            line=dict(color=line_color, width=2.5),
+            line=dict(color=line_color, width=2),
             fill="tozeroy",
             fillgradient=dict(
                 type="vertical",
-                colorscale=[
-                    [0.0, fill_color_bottom],
-                    [1.0, fill_color_top],
-                ],
+                colorscale=[[0.0, fill_bottom], [1.0, fill_top]],
             ),
-            hovertemplate="<b>%{x|%d.%m.%Y %H:%M}</b><br>Cena: <b>$%{y:.2f}</b><extra></extra>",
+            hovertemplate=(
+                "<b>%{x|%d.%m.%Y %H:%M}</b><br>"
+                "Cena: <b>$%{y:.2f}</b><extra></extra>"
+            ),
             name="Cena",
         ))
 
@@ -337,32 +322,29 @@ with tab1:
             paper_bgcolor=PLOT_BG,
             plot_bgcolor=PLOT_BG,
             font_color=TEXT,
-            height=420,
+            height=400,
             margin=dict(l=0, r=0, t=10, b=0),
             showlegend=False,
-            # Statický graf – zákaz zoomu i panu
             dragmode=False,
-            xaxis=dict(
-                gridcolor=GRID_CLR,
-                showgrid=True,
-                tickfont=dict(color=TEXT),
-                linecolor=BORDER,
-                fixedrange=True,        # zakáže zoom/pan na ose X
-            ),
-            yaxis=dict(
-                gridcolor=GRID_CLR,
-                showgrid=True,
-                tickfont=dict(color=TEXT),
-                tickprefix="$",
-                linecolor=BORDER,
-                fixedrange=True,        # zakáže zoom/pan na ose Y
-            ),
-            # Hover: svislá ryska + unified popisek
             hovermode="x unified",
-            hoverlabel=dict(
-                bgcolor=CARD,
-                font_color=TEXT,
-                bordercolor=BORDER,
+            hoverlabel=dict(bgcolor=CARD, font_color=TEXT, bordercolor=BORDER),
+            # Osa X — bez mřížky, čistá
+            xaxis=dict(
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+                tickfont=dict(color=SUB, size=11),
+                fixedrange=True,
+            ),
+            # Osa Y — Google Finance style: autorange na viditelná data, bez mřížky
+            yaxis=dict(
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+                tickfont=dict(color=SUB, size=11),
+                tickprefix="$",
+                range=[y_min, y_max],   # dynamické měřítko – nikdy od 0
+                fixedrange=True,        # zakáže zoom/pan
             ),
         )
 
@@ -370,19 +352,19 @@ with tab1:
             fig,
             use_container_width=True,
             config={
-                "displayModeBar": False,   # skrytí lišty nástrojů
-                "scrollZoom": False,       # zákaz zoom scrollem
-                "doubleClick": False,      # zákaz reset double-clickem
-                "staticPlot": False,       # hover zůstane funkční
+                "displayModeBar": False,
+                "scrollZoom": False,
+                "doubleClick": False,
+                "staticPlot": False,    # hover musí fungovat
             },
         )
 
-        # Mini info pod grafem
+        # Mini stats pod grafem
         period_chg = ((last_price - first_price) / first_price * 100) if first_price else 0
-        col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Začátek období", f"${first_price:.2f}")
-        col_b.metric("Konec období",   f"${last_price:.2f}")
-        col_c.metric("Změna období",   f"{period_chg:+.2f}%")
+        ca, cb, cc = st.columns(3)
+        ca.metric("Začátek období", f"${first_price:.2f}")
+        cb.metric("Konec období",   f"${last_price:.2f}")
+        cc.metric("Změna období",   f"{period_chg:+.2f}%")
     else:
         st.warning("Graf není k dispozici pro vybrané období.")
 
@@ -390,7 +372,7 @@ with tab1:
     st.markdown('<div class="section-header">🔍 Analytický průvodce – Vyhodnocení společnosti</div>',
                 unsafe_allow_html=True)
 
-    biz_summary = safe(info, "longBusinessSummary", "Popis není k dispozici.")
+    biz_summary   = safe(info, "longBusinessSummary", "Popis není k dispozici.")
     div_yield_raw, div_est = safe_yield(
         info.get("dividendYield"),
         info.get("lastDividendValue", 0) * shares_out * 4 if info.get("lastDividendValue") else None,
@@ -404,7 +386,7 @@ with tab1:
     target_high    = safe(info, "targetHighPrice")
     num_analysts   = safe(info, "numberOfAnalystOpinions")
 
-    st.markdown(f'<div class="analysis-box">', unsafe_allow_html=True)
+    st.markdown('<div class="analysis-box">', unsafe_allow_html=True)
     st.markdown(f"## Vyhodnocení společnosti {ticker_input} – Zisková mašina?")
     st.markdown(f"*Datum: {datetime.today().strftime('%d. %m. %Y')} | Zdroj: yfinance / Yahoo Finance*")
     st.markdown("---")
@@ -412,7 +394,8 @@ with tab1:
     st.markdown("### 🏢 Laické představení společnosti")
     st.markdown(
         f"**Sektor:** {sector} &nbsp;|&nbsp; **Industrie:** {industry}\n\n"
-        f"**Popis činnosti (EN):**\n\n> {biz_summary[:900]}{'…' if len(biz_summary)>900 else ''}\n\n"
+        f"**Popis činnosti (EN):**\n\n"
+        f"> {biz_summary[:900]}{'…' if len(biz_summary) > 900 else ''}\n\n"
         f"👉 *Doplň vlastními slovy v češtině: Co firma dělá? Komu prodává? "
         f"Jsou výnosy opakující se (předplatné/SaaS) nebo jednorázové?*"
     )
@@ -425,7 +408,7 @@ with tab1:
             "✏️ **Tvé zhodnocení Moatu: ANO / NE / SPORNÉ**"
         ),
         (
-            "2️⃣ Přehled klíčových údajů a metrik (z yfinance)",
+            "2️⃣ Přehled klíčových údajů a metrik",
             f"| Metrika | Hodnota |\n|---|---|\n"
             f"| Tržby | {fmt_large(info.get('totalRevenue'))} |\n"
             f"| EPS (TTM) | {safe(info,'trailingEps')} |\n"
@@ -457,10 +440,9 @@ with tab1:
         ),
         (
             "6️⃣ Insider transakce + analytický konsenzus",
-            f"- **Analytický rating:** `{analyst_rating}` | Cílová cena: **${target_mean}** "
-            f"(rozsah ${target_low} – ${target_high})\n"
-            f"- **Počet analytiků:** {num_analysts}\n"
-            f"- **Insider transakce:** [OpenInsider.com](https://openinsider.com) | SEC Form 4"
+            f"- **Rating:** `{analyst_rating}` | Cíl: **${target_mean}** "
+            f"(${target_low} – ${target_high}) | Analytiků: {num_analysts}\n"
+            f"- **Insideři:** [OpenInsider.com](https://openinsider.com) | SEC Form 4"
         ),
         (
             "7️⃣ Vyhodnocení kritérií 1–6",
@@ -540,16 +522,15 @@ with tab2:
     )
     bb_yield, bb_vol, bb_avail = calc_buyback_yield(shares_full, curr_price)
     total_sh_str = fmt_pct(div_yield_raw + bb_yield) if bb_avail else "N/A"
-    payout = info.get("payoutRatio") or 0
 
     c1, c2, c3, c4 = st.columns(4)
     mcard(c1, f"Dividend Yield{' *' if div_est else ''}", fmt_pct(div_yield_raw))
     mcard(c2, "Buyback Yield (1Y)", fmt_pct(bb_yield) if bb_avail else "N/A")
     mcard(c3, "Total Shareholder Yield", total_sh_str)
     mcard(c4, "Buyback objem (1Y)", bb_vol)
-    st.markdown(f"**Payout Ratio:** {fmt_pct(payout)}")
+    st.markdown(f"**Payout Ratio:** {fmt_pct(info.get('payoutRatio'))}")
     if div_est:
-        st.caption("\\* Dividend Yield ručně dopočítán z lastDividendValue / Market Cap.")
+        st.caption("\\* Ručně dopočítán z lastDividendValue / Market Cap.")
 
     st.markdown('<div class="section-header">📉 Share Count Trend (5 let)</div>', unsafe_allow_html=True)
     if shares_full is not None and not shares_full.empty:
@@ -566,8 +547,10 @@ with tab2:
             paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
             font_color=TEXT, height=280,
             margin=dict(l=0,r=0,t=10,b=0),
-            yaxis=dict(title="Akcie (mld.)", gridcolor=GRID_CLR, tickfont=dict(color=TEXT)),
-            xaxis=dict(gridcolor=GRID_CLR, tickfont=dict(color=TEXT)),
+            yaxis=dict(title="Akcie (mld.)", gridcolor="#2a2d3a" if theme=="Dark" else "#e0e0e0",
+                       tickfont=dict(color=TEXT)),
+            xaxis=dict(gridcolor="#2a2d3a" if theme=="Dark" else "#e0e0e0",
+                       tickfont=dict(color=TEXT)),
             hovermode="x unified",
         )
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
@@ -592,7 +575,7 @@ with tab3:
         f"**FCF (TTM):** {fmt_large(fcf)} &nbsp;|&nbsp; "
         f"**Shares:** {shares_out/1e9:.2f}B &nbsp;|&nbsp; "
         f"**WACC:** {discount_rate*100:.1f}% &nbsp;|&nbsp; "
-        f"**Aktuální cena:** ${curr_price:.2f}"
+        f"**Cena:** ${curr_price:.2f}"
     )
 
     def dcf_model(fcf, gr, tgr, dr, years=10):
@@ -649,6 +632,7 @@ with tab3:
                 tv = (cf_t*(1+terminal_gr)/(discount_rate-terminal_gr))/(1+discount_rate)**10/shares_out
                 labels.append("Terminální"); pvs.append(round(tv,2))
 
+            GRID = "#2a2d3a" if theme == "Dark" else "#e0e0e0"
             fig3 = go.Figure(go.Bar(
                 x=labels, y=pvs,
                 marker_color=[ACCENT]*10+[YELLOW],
@@ -659,14 +643,14 @@ with tab3:
                 paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
                 font_color=TEXT, height=340,
                 margin=dict(l=0,r=0,t=20,b=0),
-                yaxis=dict(title="PV / akcii ($)", gridcolor=GRID_CLR, tickfont=dict(color=TEXT)),
-                xaxis=dict(gridcolor=GRID_CLR, tickfont=dict(color=TEXT)),
+                yaxis=dict(title="PV / akcii ($)", gridcolor=GRID, tickfont=dict(color=TEXT)),
+                xaxis=dict(gridcolor=GRID, tickfont=dict(color=TEXT)),
             )
             st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
         else:
             st.error("DCF selhalo – zkontroluj Discount Rate vs Terminal Growth Rate.")
     else:
-        st.warning(f"FCF pro **{ticker_input}** není dostupný nebo je záporný. DCF nelze spočítat.")
+        st.warning(f"FCF pro **{ticker_input}** není dostupný nebo záporný. DCF nelze spočítat.")
 
 # ══════════════════════════════════════════════
 # TAB 4 – FINANČNÍ VÝKAZY
@@ -677,8 +661,7 @@ with tab4:
 
     def show_statement(df, title):
         if df is None or df.empty:
-            st.warning(f"{title}: data nejsou k dispozici.")
-            return
+            st.warning(f"{title}: data nejsou k dispozici."); return
         d = df.copy()
         d.columns = [str(c)[:10] for c in d.columns]
         d = d.apply(pd.to_numeric, errors="coerce")
