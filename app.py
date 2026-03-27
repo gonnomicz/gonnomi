@@ -1,8 +1,16 @@
 """
 Value Investor's Workbench
 ==========================
-Spuštění: streamlit run app.py
-Závislosti: streamlit, yfinance, pandas, plotly, anthropic, requests
+Senior-level stock analysis app with AI-powered qualitative analysis.
+Stack: Streamlit · yfinance · pandas · plotly · Anthropic Claude API
+
+Install:
+    pip install streamlit yfinance pandas plotly anthropic
+
+Run:
+    streamlit run app.py
+
+Streamlit Cloud: add ANTHROPIC_API_KEY to Secrets.
 """
 
 import streamlit as st
@@ -11,175 +19,315 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import anthropic
-from datetime import datetime, date
-import numpy as np
+from datetime import datetime, timedelta
+import math
 import warnings
+import requests
 warnings.filterwarnings("ignore")
 
-# ── PAGE CONFIG ────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────
 st.set_page_config(
     page_title="Value Investor's Workbench",
-    page_icon="📊",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── DARK MODE CSS ───────────────────────────────────────────────────────────────
-st.markdown("""
+DARK_CSS = """
 <style>
 :root {
-    --bg: #0e1117; --card: #1a1d27; --accent: #4f8ef7;
-    --green: #22c55e; --red: #ef4444; --text: #e2e8f0; --muted: #94a3b8;
+    --bg: #0e1117;
+    --card: #1a1d27;
+    --accent: #00c4b4;
+    --text: #e0e0e0;
+    --sub: #888;
+    --green: #00c853;
+    --red: #ff1744;
+    --yellow: #ffd600;
 }
-.stApp { background-color: var(--bg); color: var(--text); }
+html, body, [data-testid="stAppViewContainer"] { background: var(--bg); color: var(--text); }
+[data-testid="stSidebar"] { background: #12151e; }
 .metric-card {
-    background: var(--card); border-radius: 12px; padding: 16px 20px;
-    border: 1px solid #2d3148; margin-bottom: 8px;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 10px;
+    border-left: 3px solid var(--accent);
 }
-.metric-card h4 { color: var(--muted); font-size: 0.78rem; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .05em; }
-.metric-card p  { color: var(--text); font-size: 1.4rem; font-weight: 700; margin: 0; }
+.metric-label { color: var(--sub); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.metric-value { font-size: 22px; font-weight: 700; color: var(--text); }
+.tag-green  { color: var(--green); font-weight: 700; }
+.tag-red    { color: var(--red);   font-weight: 700; }
+.tag-yellow { color: var(--yellow);font-weight: 700; }
 .section-header {
-    font-size: 1.15rem; font-weight: 700; color: var(--accent);
-    border-left: 4px solid var(--accent); padding-left: 10px; margin: 24px 0 12px;
+    font-size: 20px; font-weight: 700;
+    border-bottom: 1px solid #2a2d3a;
+    padding-bottom: 6px; margin-top: 24px; margin-bottom: 14px;
+    color: var(--accent);
 }
-.badge-green { background:#14532d; color:#86efac; border-radius:6px; padding:2px 10px; font-size:.8rem; font-weight:600; }
-.badge-red   { background:#450a0a; color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:.8rem; font-weight:600; }
-.badge-yellow{ background:#451a03; color:#fde68a; border-radius:6px; padding:2px 10px; font-size:.8rem; font-weight:600; }
-div[data-testid="stTabs"] button { color: var(--muted) !important; }
-div[data-testid="stTabs"] button[aria-selected="true"] { color: var(--accent) !important; border-bottom-color: var(--accent) !important; }
+.ai-box {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 24px 28px;
+    border: 1px solid #2a2d3a;
+    line-height: 1.75;
+}
+stTabs [data-baseweb="tab"] { color: var(--sub); }
 </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(DARK_CSS, unsafe_allow_html=True)
 
-# ── HELPERS ─────────────────────────────────────────────────────────────────────
-def fmt_num(v, decimals=2, suffix=""):
-    if v is None or (isinstance(v, float) and np.isnan(v)):
+# ──────────────────────────────────────────────
+# HELPERS
+# ──────────────────────────────────────────────
+def fmt_large(n):
+    if n is None or (isinstance(n, float) and math.isnan(n)):
         return "N/A"
-    if abs(v) >= 1e12: return f"{v/1e12:.{decimals}f}T{suffix}"
-    if abs(v) >= 1e9:  return f"{v/1e9:.{decimals}f}B{suffix}"
-    if abs(v) >= 1e6:  return f"{v/1e6:.{decimals}f}M{suffix}"
-    return f"{v:.{decimals}f}{suffix}"
+    if abs(n) >= 1e12: return f"${n/1e12:.2f}T"
+    if abs(n) >= 1e9:  return f"${n/1e9:.2f}B"
+    if abs(n) >= 1e6:  return f"${n/1e6:.2f}M"
+    return f"${n:,.0f}"
 
-def pct(v):
-    if v is None or (isinstance(v, float) and np.isnan(v)): return "N/A"
-    return f"{v*100:.2f}%"
+def fmt_pct(n):
+    if n is None or (isinstance(n, float) and math.isnan(n)):
+        return "N/A"
+    return f"{n*100:.2f}%"
 
-def safe(d, key, default=None):
+def safe(info, key, default="N/A"):
+    v = info.get(key, default)
+    if v is None: return default
+    return v
+
+def color_tag(val, good_above=None, bad_above=None):
     try:
-        v = d.get(key, default)
-        return v if v not in (None, "N/A", {}) else default
-    except Exception:
-        return default
+        v = float(val)
+        if good_above is not None and v >= good_above:
+            return f'<span class="tag-green">{val}</span>'
+        if bad_above is not None and v >= bad_above:
+            return f'<span class="tag-red">{val}</span>'
+        return f'<span class="tag-yellow">{val}</span>'
+    except:
+        return val
 
-def plotly_dark_layout():
-    return dict(
-        paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-        font=dict(color="#e2e8f0"), xaxis=dict(gridcolor="#2d3148", zerolinecolor="#2d3148"),
-        yaxis=dict(gridcolor="#2d3148", zerolinecolor="#2d3148"),
-        margin=dict(l=0, r=0, t=32, b=0),
-    )
+def _make_session() -> requests.Session:
+    """Vlastní requests session s User-Agent hlavičkou.
+    Doporučený postup pro yfinance — zabraňuje RateLimitError (429)."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+    })
+    return session
 
-# ── DATA LOADER ─────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=900, show_spinner=False)
 def load_ticker(ticker: str):
-    t = yf.Ticker(ticker)
-    info = t.info or {}
-    hist_1y  = t.history(period="1y",  interval="1d")
-    hist_5y  = t.history(period="5y",  interval="1mo")
-    fin_a    = t.financials          # annual income statement (columns = dates)
-    bal_a    = t.balance_sheet
-    cf_a     = t.cashflow
-    fin_q    = t.quarterly_financials
-    bal_q    = t.quarterly_balance_sheet
-    shares_q = t.get_shares_full(start="2019-01-01")
-    return dict(info=info, hist_1y=hist_1y, hist_5y=hist_5y,
-                fin_a=fin_a, bal_a=bal_a, cf_a=cf_a,
-                fin_q=fin_q, bal_q=bal_q, shares_q=shares_q)
+    session = _make_session()
+    t = yf.Ticker(ticker.upper(), session=session)
+    info   = t.info
+    hist   = t.history(period="1y", interval="1d")
+    hist5y = t.history(period="5y", interval="3mo")
+    inc    = t.financials
+    bal    = t.balance_sheet
+    cf     = t.cashflow
+    shares = t.get_shares_full(start="2018-01-01")
+    return info, hist, hist5y, inc, bal, cf, shares
 
-# ── AI ANALYSIS ──────────────────────────────────────────────────────────────────
-def generate_ai_analysis(ticker: str, info: dict) -> str:
-    today = date.today().strftime("%d. %m. %Y")
-    name  = info.get("longName", ticker)
-    sector = info.get("sector", "N/A")
-    mcap  = fmt_num(info.get("marketCap"))
-    rev   = fmt_num(info.get("totalRevenue"))
-    eps   = info.get("trailingEps", "N/A")
-    pm    = pct(info.get("profitMargins"))
-    om    = pct(info.get("operatingMargins"))
-    fcf   = fmt_num(info.get("freeCashflow"))
-    de    = info.get("debtToEquity", "N/A")
-    cash  = fmt_num(info.get("totalCash"))
-    div   = pct(info.get("dividendYield"))
-    roe   = pct(info.get("returnOnEquity"))
-    roa   = pct(info.get("returnOnAssets"))
-    pe    = info.get("trailingPE", "N/A")
-    pb    = info.get("priceToBook", "N/A")
-    summary = info.get("longBusinessSummary", "")[:1200]
-    recKey  = info.get("recommendationKey", "N/A")
-    tgtMean = info.get("targetMeanPrice", "N/A")
+# ──────────────────────────────────────────────
+# SIDEBAR
+# ──────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 📈 Value Investor's Workbench")
+    st.markdown("---")
+    ticker_input = st.text_input("Ticker Symbol", value="AAPL", max_chars=10).upper()
+    st.markdown("---")
+    st.markdown("### ⚙️ DCF Parameters")
+    discount_rate = st.slider("Discount Rate (%)", 6.0, 20.0, 10.0, 0.5) / 100
+    growth_rate   = st.number_input("Growth Rate – yr 1–5 (%)", value=10.0, step=0.5) / 100
+    terminal_gr   = st.number_input("Terminal Growth Rate (%)", value=3.0, step=0.5) / 100
+    mos_required  = st.number_input("Margin of Safety (%)", value=20.0, step=5.0) / 100
+    st.markdown("---")
+    api_key_input = st.text_input("Anthropic API Key", type="password",
+                                  help="Or set ANTHROPIC_API_KEY in Streamlit Secrets.")
 
-    prompt = f"""Jsi špičkový kvantitativní finanční analytik a hodnotový investor (value investing). 
-Dnes je {today}. Analyzuj společnost {name} (ticker: {ticker}, sektor: {sector}).
+# ──────────────────────────────────────────────
+# LOAD DATA
+# ──────────────────────────────────────────────
+with st.spinner(f"Loading data for **{ticker_input}**…"):
+    try:
+        info, hist, hist5y, inc, bal, cf, shares_full = load_ticker(ticker_input)
+    except Exception as e:
+        st.error(f"Failed to load data: {e}")
+        st.stop()
 
-Dostupná data:
-- Tržní kapitalizace: {mcap}
-- Tržby: {rev}
-- EPS (TTM): {eps}
-- Free Cash Flow: {fcf}
-- Provozní marže: {om}
-- Zisková marže: {pm}
-- ROE: {roe} | ROA: {roa}
-- Debt/Equity: {de}
-- Hotovost: {cash}
-- Dividendový výnos: {div}
-- P/E: {pe} | P/B: {pb}
-- Analytický konsenzus: {recKey}, cíl: {tgtMean}
-- Popis: {summary}
+if not info or info.get("regularMarketPrice") is None and info.get("currentPrice") is None:
+    st.error("Ticker not found or no data available. Check the symbol and try again.")
+    st.stop()
 
-Vygeneruj kompletní analýzu přesně v tomto formátu (Markdown, česky):
+curr_price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
 
-# Vyhodnocení společnosti {ticker} – Zisková mašina?
+# ──────────────────────────────────────────────
+# TABS
+# ──────────────────────────────────────────────
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🏠 Dashboard", "📊 360° Metrics", "💰 DCF Model", "📋 Financial Statements"
+])
+
+# ══════════════════════════════════════════════
+# TAB 1 — DASHBOARD
+# ══════════════════════════════════════════════
+with tab1:
+    # Header
+    name = safe(info, "longName", ticker_input)
+    sector   = safe(info, "sector")
+    industry = safe(info, "industry")
+    mktcap   = fmt_large(info.get("marketCap"))
+    employees = f"{info.get('fullTimeEmployees', 'N/A'):,}" if info.get("fullTimeEmployees") else "N/A"
+    website  = safe(info, "website")
+    prev_close = info.get("previousClose", 0)
+    chg = ((curr_price - prev_close) / prev_close * 100) if prev_close else 0
+    chg_str = f"{'▲' if chg>=0 else '▼'} {abs(chg):.2f}%"
+
+    st.markdown(f"## {name} &nbsp; `{ticker_input}`")
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    def mcard(col, label, val):
+        col.markdown(f'<div class="metric-card"><div class="metric-label">{label}</div><div class="metric-value">{val}</div></div>', unsafe_allow_html=True)
+
+    mcard(c1, "Current Price", f"${curr_price:.2f}")
+    mcard(c2, "1D Change", chg_str)
+    mcard(c3, "Market Cap", mktcap)
+    mcard(c4, "Sector", sector)
+    mcard(c5, "Employees", employees)
+
+    st.markdown(f"**Industry:** {industry} &nbsp;|&nbsp; **Web:** [{website}]({website})", unsafe_allow_html=True)
+
+    # Candlestick
+    st.markdown('<div class="section-header">📉 Price Chart (1 Year)</div>', unsafe_allow_html=True)
+    if not hist.empty:
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            row_heights=[0.75, 0.25], vertical_spacing=0.03)
+        fig.add_trace(go.Candlestick(
+            x=hist.index, open=hist["Open"], high=hist["High"],
+            low=hist["Low"],  close=hist["Close"],
+            increasing_line_color="#00c853", decreasing_line_color="#ff1744",
+            name="Price"), row=1, col=1)
+        fig.add_trace(go.Bar(
+            x=hist.index, y=hist["Volume"],
+            marker_color=["#00c853" if c >= o else "#ff1744"
+                          for c, o in zip(hist["Close"], hist["Open"])],
+            name="Volume"), row=2, col=1)
+        fig.update_layout(
+            paper_bgcolor="#1a1d27", plot_bgcolor="#1a1d27",
+            font_color="#e0e0e0", xaxis_rangeslider_visible=False,
+            margin=dict(l=0, r=0, t=10, b=0), height=460,
+            showlegend=False,
+            xaxis=dict(gridcolor="#2a2d3a"),
+            yaxis=dict(gridcolor="#2a2d3a"),
+            xaxis2=dict(gridcolor="#2a2d3a"),
+            yaxis2=dict(gridcolor="#2a2d3a"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── AI ANALYSIS ────────────────────────────
+    st.markdown('<div class="section-header">🤖 AI-Powered Deep Analysis</div>', unsafe_allow_html=True)
+
+    # Resolve API key
+    resolved_key = api_key_input
+    if not resolved_key:
+        try:
+            resolved_key = st.secrets["ANTHROPIC_API_KEY"]
+        except:
+            resolved_key = None
+
+    today_str = datetime.today().strftime("%d. %m. %Y")
+
+    # Gather snapshot for AI
+    summary_data = f"""
+Ticker: {ticker_input}
+Company: {name}
+Sector: {sector} / {industry}
+Current Price: ${curr_price:.2f}
+Market Cap: {mktcap}
+P/E: {safe(info,'trailingPE')}
+Forward P/E: {safe(info,'forwardPE')}
+P/B: {safe(info,'priceToBook')}
+P/S: {safe(info,'priceToSalesTrailing12Months')}
+EV/EBITDA: {safe(info,'enterpriseToEbitda')}
+ROE: {fmt_pct(info.get('returnOnEquity'))}
+ROA: {fmt_pct(info.get('returnOnAssets'))}
+Gross Margin: {fmt_pct(info.get('grossMargins'))}
+Operating Margin: {fmt_pct(info.get('operatingMargins'))}
+Profit Margin: {fmt_pct(info.get('profitMargins'))}
+Revenue: {fmt_large(info.get('totalRevenue'))}
+Free Cash Flow: {fmt_large(info.get('freeCashflow'))}
+Debt/Equity: {safe(info,'debtToEquity')}
+Current Ratio: {safe(info,'currentRatio')}
+Dividend Yield: {fmt_pct(info.get('dividendYield'))}
+52W High: {safe(info,'fiftyTwoWeekHigh')}
+52W Low: {safe(info,'fiftyTwoWeekLow')}
+Business Summary: {safe(info,'longBusinessSummary','N/A')[:600]}
+"""
+
+    PROMPT = f"""Jsi seniorní finanční analytik a hodnotoví investor. Na základě níže uvedených dat o společnosti vytvoř hloubkovou analýzu PŘESNĚ podle šablony.
+Piš plynule, analyticky, v češtině. Každou sekci naplň konkrétními informacemi na základě dat.
+Dnešní datum: {today_str}
+
+DATA:
+{summary_data}
+
+ŠABLONA (vyplň ji přesně, zachovej emoji a strukturu):
+
+# Vyhodnocení společnosti {ticker_input} – Zisková mašina?
 
 ## Laické představení společnosti
-[Souvislý text, lidskou řečí, bez žargonu. Co firma dělá, komu prodává, jak vydělává, ekonomika jednotky, tahouny růstu a rizika.]
+[Souvislý text, lidskou řečí. Co firma dělá, hlavní produkty/služby, komu prodává, jak vydělává peníze, opakovanost výnosů, ekonomika jednotky, hlavní tahouny růstu a rizika.]
 
 ### 1️⃣ PILÍŘ 1 – Monopol nebo silné postavení na trhu
-[Má firma moat? Ekosystém, síťový efekt, bariéry vstupu? Důkazy s fakty.]
+[Má firma moat? Ekosystém, síťový efekt, bariéry vstupu? Konkrétní důkazy.]
 => **Zhodnocení Moatu:** [ANO/NE/SPORNÉ]
 
 ### 2️⃣ Přehled klíčových údajů a metrik
-| Metrika | Hodnota |
-|---|---|
-| Tržby | {rev} |
-| EPS | {eps} |
-| FCF | {fcf} |
-| Provozní marže | {om} |
-| Debt/Equity | {de} |
-| Hotovost | {cash} |
-*[Krátký komentář – co čísla říkají o síle a stabilitě.]*
+[Tabulka markdown: Metrika | Hodnota | Komentář – Tržby, EPS, FCF, Provozní marže, Debt/Equity, Hotovost]
+*Krátký komentář co čísla znamenají pro sílu a stabilitu.*
 
 ### 3️⃣ Investiční teze – pohled do budoucna
-- **Růstové motory:** [odrážky]
-- **Rizika a varovné signály:** [odrážky]
-[Shrnutí příležitostí a hrozeb v jednom odstavci.]
+**Růstové motory:**
+- [bod 1]
+- [bod 2]
+- [bod 3]
+
+**Rizika a varovné signály:**
+- [bod 1]
+- [bod 2]
+- [bod 3]
+
+[Shrnutí v odstavci.]
 
 ### 4️⃣ Přátelský vztah k akcionářům
-[Dividendy, buybacky, kapitálová alokace, chování managementu, skin in the game.]
+[Dividendy, buybacky, management, skin in the game, historické příklady.]
 => **Alokace kapitálu:** [ANO/NE/SPORNÉ]
 
 ### 5️⃣ Srovnání s nejbližšími konkurenty
 | Firma | Business Model | Tržby/Ziskovost | Zadlužení | Komentář |
-|---|---|---|---|---|
-[Vyplň 3-4 konkurenty]
-[Stručné shrnutí pozice firmy v konkurenci.]
+|-------|---------------|-----------------|-----------|----------|
+[3-4 řádky]
+[Shrnutí pozice firmy.]
 
 ### 6️⃣ Insider transakce + analytický konsenzus
-- Insider aktivity: [shrnutí]
-- Analytický rating: {recKey}, průměrný cíl: {tgtMean}
-- [Kontext a vysvětlení]
+- **Insideři:** [shrnutí]
+- **Analytický rating:** [buy/hold/sell a průměrný cílový kurz]
+- **Kontext:** [vysvětlení]
 
 ### 7️⃣ Vyhodnocení kritérií 1–6
 | Kritérium | Hodnocení |
-|---|---|
+|-----------|-----------|
 | Monopolní postavení | [ANO/NE/SPORNÉ] |
 | Finanční síla | [ANO/NE/SPORNÉ] |
 | Růstový potenciál | [ANO/NE/SPORNÉ] |
@@ -188,339 +336,277 @@ Vygeneruj kompletní analýzu přesně v tomto formátu (Markdown, česky):
 | Celková stabilita a výkonnost | [ANO/NE/SPORNÉ] |
 
 ### 8️⃣ Závěr
-**[Jedna věta tučně: je to „zisková mašina" a proč.]**
+**[Jedna věta tučně: je to zisková mašina a proč.]**
 
 ### 9️⃣ Celkové shrnutí pro investora
-[Souvislý text pro laika. Hlavní argumenty, síla vs rizika, jasný pohled ANO/NE.]
+[Souvislý text pro laika. Hlavní argumenty pro a proti. Jasný pohled ANO/NE.]
 
 ---
-*Autor: AI Chatbot | Datum: {today}*
-*⚠️ Není investiční poradenství. Zdroje: yfinance, veřejná data. Rizika: konkurence, regulace, makroekonomika.*"""
+*Autor: AI Chatbot | Datum: {today_str}*
+*⚠️ Není investiční poradenství. Zdroje: yfinance, veřejné informace. Rizika: konkurence, regulace, tržní podmínky.*
+"""
 
-    client = anthropic.Anthropic()
-    with st.spinner("🤖 AI generuje hloubkovou analýzu…"):
-        msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}]
-        )
-    return msg.content[0].text
+    if resolved_key:
+        gen_btn = st.button("🚀 Generovat AI analýzu", type="primary")
+        ai_placeholder = st.empty()
 
-# ══════════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.markdown("## 📊 Value Investor's Workbench")
-    st.markdown("---")
-    ticker_input = st.text_input("Ticker symbol", value="AAPL").upper().strip()
-    run_btn = st.button("🔍 Analyzovat", use_container_width=True, type="primary")
-    st.markdown("---")
-    st.markdown("### ⚙️ DCF parametry")
-    discount_rate  = st.slider("Discount Rate (%)", 6.0, 20.0, 10.0, 0.5) / 100
-    growth_rate    = st.number_input("Růst FCF – roky 1–5 (%)", value=10.0, step=0.5) / 100
-    terminal_rate  = st.number_input("Terminální růst (%)", value=3.0, step=0.5) / 100
-    mos_pct        = st.number_input("Požadovaná Margin of Safety (%)", value=20.0, step=5.0) / 100
-    st.markdown("---")
-    st.caption("Data: yfinance · AI: Claude Sonnet")
-
-# ══════════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════════
-if "ticker" not in st.session_state:
-    st.session_state.ticker = "AAPL"
-if "data" not in st.session_state:
-    st.session_state.data = None
-if "ai_text" not in st.session_state:
-    st.session_state.ai_text = {}
-
-if run_btn or st.session_state.data is None:
-    st.session_state.ticker = ticker_input
-    with st.spinner(f"Stahuji data pro {ticker_input}…"):
-        st.session_state.data = load_ticker(ticker_input)
-
-data   = st.session_state.data
-ticker = st.session_state.ticker
-info   = data["info"]
-
-# ── TABS ─────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Dashboard", "📐 Metriky 360°", "💰 DCF Model", "📋 Výkazy"])
-
-# ══════════════════════════════════════════════════════════════════════════════════
-# TAB 1 – DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════════════
-with tab1:
-    name = info.get("longName", ticker)
-    st.markdown(f"## {name} &nbsp; <span style='color:#94a3b8;font-size:1rem'>({ticker})</span>", unsafe_allow_html=True)
-
-    # KPI row
-    price      = safe(info, "currentPrice") or safe(info, "regularMarketPrice", 0)
-    prev_close = safe(info, "previousClose", price)
-    chg        = (price - prev_close) / prev_close * 100 if prev_close else 0
-    chg_color  = "badge-green" if chg >= 0 else "badge-red"
-    chg_sign   = "+" if chg >= 0 else ""
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    for col, label, val in [
-        (c1, "Cena", f"${price:.2f}"),
-        (c2, "Změna", f'{chg_sign}{chg:.2f}%'),
-        (c3, "Tržní kap.", fmt_num(safe(info,"marketCap"), suffix=" USD")),
-        (c4, "Sektor", info.get("sector","N/A")),
-        (c5, "Zaměstnanci", fmt_num(safe(info,"fullTimeEmployees"), 0)),
-    ]:
-        col.markdown(f'<div class="metric-card"><h4>{label}</h4><p>{val}</p></div>', unsafe_allow_html=True)
-
-    # Company info row
-    st.markdown(f"""
-    <div class="metric-card" style="margin-top:8px">
-    <b>Průmysl:</b> {info.get('industry','N/A')} &nbsp;|&nbsp;
-    <b>Burza:</b> {info.get('exchange','N/A')} &nbsp;|&nbsp;
-    <b>Web:</b> <a href="{info.get('website','#')}" target="_blank">{info.get('website','N/A')}</a>
-    </div>""", unsafe_allow_html=True)
-
-    # Candlestick chart
-    st.markdown('<div class="section-header">📈 Vývoj ceny – 1 rok (OHLC)</div>', unsafe_allow_html=True)
-    hist = data["hist_1y"]
-    if not hist.empty:
-        fig = make_subplots(rows=2, cols=1, row_heights=[0.75, 0.25], shared_xaxes=True, vertical_spacing=0.02)
-        fig.add_trace(go.Candlestick(
-            x=hist.index, open=hist["Open"], high=hist["High"], low=hist["Low"], close=hist["Close"],
-            increasing_line_color="#22c55e", decreasing_line_color="#ef4444", name="OHLC"
-        ), row=1, col=1)
-        fig.add_trace(go.Bar(
-            x=hist.index, y=hist["Volume"], name="Objem",
-            marker_color=["#22c55e" if c >= o else "#ef4444" for c, o in zip(hist["Close"], hist["Open"])]
-        ), row=2, col=1)
-        fig.update_layout(**plotly_dark_layout(), height=480, showlegend=False)
-        fig.update_xaxes(rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # AI Analysis
-    st.markdown('<div class="section-header">🤖 Hloubková AI analýza</div>', unsafe_allow_html=True)
-    if ticker not in st.session_state.ai_text:
-        if st.button("▶ Generovat AI analýzu", type="primary"):
-            st.session_state.ai_text[ticker] = generate_ai_analysis(ticker, info)
-            st.rerun()
+        if gen_btn:
+            with st.spinner("Generuji hloubkovou analýzu…"):
+                try:
+                    client = anthropic.Anthropic(api_key=resolved_key)
+                    ai_text = ""
+                    with client.messages.stream(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=4000,
+                        messages=[{"role": "user", "content": PROMPT}],
+                    ) as stream:
+                        for text in stream.text_stream:
+                            ai_text += text
+                            ai_placeholder.markdown(
+                                f'<div class="ai-box">{ai_text}▌</div>',
+                                unsafe_allow_html=True)
+                    ai_placeholder.markdown(
+                        f'<div class="ai-box">{ai_text}</div>',
+                        unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"AI chyba: {e}")
+        else:
+            ai_placeholder.info("Klikni na **Generovat AI analýzu** pro spuštění hloubkové analýzy.")
     else:
-        if st.button("🔄 Obnovit analýzu"):
-            del st.session_state.ai_text[ticker]
-            st.rerun()
-        st.markdown(st.session_state.ai_text[ticker])
+        st.warning("Pro AI analýzu zadej Anthropic API klíč v postranním panelu nebo nastav `ANTHROPIC_API_KEY` v Streamlit Secrets.")
 
-# ══════════════════════════════════════════════════════════════════════════════════
-# TAB 2 – METRICS 360°
-# ══════════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════
+# TAB 2 — 360° METRICS
+# ══════════════════════════════════════════════
 with tab2:
-    st.markdown('<div class="section-header">📐 Valuace & Rentabilita</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📊 Valuace</div>', unsafe_allow_html=True)
 
-    metrics = {
-        "P/E (TTM)":           safe(info, "trailingPE"),
-        "Forward P/E":         safe(info, "forwardPE"),
-        "P/S":                 safe(info, "priceToSalesTrailing12Months"),
-        "P/B":                 safe(info, "priceToBook"),
-        "EV/EBITDA":           safe(info, "enterpriseToEbitda"),
-        "Příští Earnings":     safe(info, "earningsTimestampStart"),
-        "ROE":                 safe(info, "returnOnEquity"),
-        "ROA":                 safe(info, "returnOnAssets"),
-        "Gross Margin":        safe(info, "grossMargins"),
-        "Operating Margin":    safe(info, "operatingMargins"),
-        "Profit Margin":       safe(info, "profitMargins"),
-        "Debt/Equity":         safe(info, "debtToEquity"),
-        "Current Ratio":       safe(info, "currentRatio"),
-        "Dividend Yield":      safe(info, "dividendYield"),
-        "Payout Ratio":        safe(info, "payoutRatio"),
+    valuation_data = {
+        "Metrika": ["P/E (TTM)", "Forward P/E", "P/S", "P/B", "EV/EBITDA", "Nejbližší Earnings"],
+        "Hodnota": [
+            safe(info, "trailingPE"),
+            safe(info, "forwardPE"),
+            safe(info, "priceToSalesTrailing12Months"),
+            safe(info, "priceToBook"),
+            safe(info, "enterpriseToEbitda"),
+            safe(info, "earningsDate") if info.get("earningsDate") else
+                (datetime.fromtimestamp(info["earningsTimestamps"][0]).strftime("%d.%m.%Y")
+                 if info.get("earningsTimestamps") else "N/A"),
+        ]
     }
+    st.dataframe(pd.DataFrame(valuation_data), use_container_width=True, hide_index=True)
 
-    def fmt_metric(k, v):
-        if v is None: return "N/A"
-        if "Margin" in k or "ROE" in k or "ROA" in k or "Yield" in k or "Ratio" in k and "Current" not in k and "Debt" not in k:
-            return pct(v)
-        if "Earnings" in k:
-            try: return datetime.fromtimestamp(v).strftime("%d.%m.%Y")
-            except: return str(v)
-        return f"{v:.2f}"
-
-    rows = [(k, fmt_metric(k, v)) for k, v in metrics.items()]
-    half = len(rows) // 2
+    st.markdown('<div class="section-header">💹 Rentabilita & Zdraví</div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        st.dataframe(pd.DataFrame(rows[:half], columns=["Metrika","Hodnota"]).set_index("Metrika"),
-                     use_container_width=True)
+        prof_data = {
+            "Metrika": ["ROE", "ROA", "Gross Margin", "Operating Margin", "Profit Margin"],
+            "Hodnota": [
+                fmt_pct(info.get("returnOnEquity")),
+                fmt_pct(info.get("returnOnAssets")),
+                fmt_pct(info.get("grossMargins")),
+                fmt_pct(info.get("operatingMargins")),
+                fmt_pct(info.get("profitMargins")),
+            ]
+        }
+        st.dataframe(pd.DataFrame(prof_data), use_container_width=True, hide_index=True)
     with c2:
-        st.dataframe(pd.DataFrame(rows[half:], columns=["Metrika","Hodnota"]).set_index("Metrika"),
-                     use_container_width=True)
+        health_data = {
+            "Metrika": ["Debt/Equity", "Current Ratio", "Total Debt", "Cash & Equivalents"],
+            "Hodnota": [
+                safe(info, "debtToEquity"),
+                safe(info, "currentRatio"),
+                fmt_large(info.get("totalDebt")),
+                fmt_large(info.get("totalCash")),
+            ]
+        }
+        st.dataframe(pd.DataFrame(health_data), use_container_width=True, hide_index=True)
 
-    # ── BUYBACKS ─────────────────────────────────────────────────────────────────
-    st.markdown('<div class="section-header">🔄 Analýza Buybacků & Share Count</div>', unsafe_allow_html=True)
+    # ── DIVIDENDS & BUYBACKS ──────────────────
+    st.markdown('<div class="section-header">💵 Dividendy & Buybacky</div>', unsafe_allow_html=True)
 
-    shares_series = data["shares_q"]
-    if shares_series is not None and len(shares_series) > 2:
-        shares_df = pd.DataFrame(shares_series, columns=["Shares"])
-        shares_df.index = pd.to_datetime(shares_df.index)
-        shares_df = shares_df.sort_index()
+    div_yield = info.get("dividendYield", 0) or 0
+    payout    = info.get("payoutRatio", 0) or 0
 
-        # Resample to quarterly
-        shares_q = shares_df.resample("Q").last().dropna()
+    # Buyback yield: use shares outstanding change
+    buyback_yield = 0.0
+    bb_vol_1y = "N/A"
+    if shares_full is not None and not shares_full.empty:
+        shares_series = shares_full.sort_index()
+        if len(shares_series) >= 2:
+            s_now  = shares_series.iloc[-1]
+            s_1y   = shares_series[shares_series.index <= shares_series.index[-1] - timedelta(days=365)]
+            if not s_1y.empty:
+                s_1y_val = s_1y.iloc[-1]
+                buyback_yield = max((s_1y_val - s_now) / s_1y_val, 0)
+                bb_vol_1y = fmt_large(max(s_1y_val - s_now, 0) * curr_price)
 
-        # Buyback yield (1Y)
-        if len(shares_q) >= 4:
-            s_now  = shares_q["Shares"].iloc[-1]
-            s_1y   = shares_q["Shares"].iloc[-5] if len(shares_q) >= 5 else shares_q["Shares"].iloc[0]
-            bb_yield = (s_1y - s_now) / s_1y if s_1y else 0
-        else:
-            bb_yield = 0
+    total_sh_yield = div_yield + buyback_yield
 
-        div_yield_v = safe(info, "dividendYield") or 0
-        total_sh_yield = div_yield_v + bb_yield
+    c1, c2, c3, c4 = st.columns(4)
+    mcard(c1, "Dividend Yield",      fmt_pct(div_yield))
+    mcard(c2, "Buyback Yield (1Y)",  fmt_pct(buyback_yield))
+    mcard(c3, "Total Shareholder Yield", fmt_pct(total_sh_yield))
+    mcard(c4, "Buyback Vol (1Y $)",  bb_vol_1y)
 
-        c1, c2, c3 = st.columns(3)
-        c1.markdown(f'<div class="metric-card"><h4>Buyback Yield (1Y)</h4><p>{bb_yield*100:.2f}%</p></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><h4>Dividend Yield</h4><p>{div_yield_v*100:.2f}%</p></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="metric-card"><h4>Total Shareholder Yield</h4><p>{total_sh_yield*100:.2f}%</p></div>', unsafe_allow_html=True)
+    st.markdown(f"**Payout Ratio:** {fmt_pct(payout)}")
 
-        # Buyback volumes
-        avg_price = safe(info, "currentPrice") or 100
-        periods = {"YTD": shares_q.last("1Q"), "6M": shares_q.last("2Q"),
-                   "1Y": shares_q.last("4Q"), "2Y": shares_q.last("8Q"),
-                   "5Y": shares_q}
-        vol_rows = []
-        for label, subset in periods.items():
-            if len(subset) >= 2:
-                red = subset["Shares"].iloc[0] - subset["Shares"].iloc[-1]
-                vol = red * avg_price
-                vol_rows.append({"Období": label, "Redukce akcií": fmt_num(red, 0), "Objem buybacků (est.)": fmt_num(vol)})
-        if vol_rows:
-            st.dataframe(pd.DataFrame(vol_rows).set_index("Období"), use_container_width=True)
-
-        # Share Count Trend Chart
+    # Share Count Trend Chart
+    st.markdown('<div class="section-header">📉 Share Count Trend (5 let)</div>', unsafe_allow_html=True)
+    if shares_full is not None and not shares_full.empty:
+        sh = shares_full.sort_index()
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(
-            x=shares_q.index, y=shares_q["Shares"]/1e9,
-            mode="lines+markers", line=dict(color="#4f8ef7", width=2),
-            fill="tozeroy", fillcolor="rgba(79,142,247,0.1)", name="Shares (mld)"
+            x=sh.index, y=sh.values / 1e9,
+            mode="lines+markers",
+            line=dict(color="#00c4b4", width=2),
+            fill="tozeroy", fillcolor="rgba(0,196,180,0.08)",
+            name="Shares (B)"
         ))
-        fig2.update_layout(**plotly_dark_layout(), height=280,
-                           title="Share Count Trend", yaxis_title="Mld. akcií")
+        fig2.update_layout(
+            paper_bgcolor="#1a1d27", plot_bgcolor="#1a1d27",
+            font_color="#e0e0e0", height=280,
+            margin=dict(l=0, r=0, t=10, b=0),
+            yaxis=dict(title="Shares (B)", gridcolor="#2a2d3a"),
+            xaxis=dict(gridcolor="#2a2d3a"),
+        )
         st.plotly_chart(fig2, use_container_width=True)
     else:
         st.info("Data o počtu akcií nejsou k dispozici.")
 
-# ══════════════════════════════════════════════════════════════════════════════════
-# TAB 3 – DCF MODEL
-# ══════════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════
+# TAB 3 — DCF MODEL
+# ══════════════════════════════════════════════
 with tab3:
-    st.markdown('<div class="section-header">💰 Discounted Cash Flow – Fair Value</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">💰 Discounted Cash Flow Model</div>', unsafe_allow_html=True)
 
-    # Get latest FCF
-    cf = data["cf_a"]
-    fcf_val = None
-    if cf is not None and not cf.empty:
-        for row_name in ["Free Cash Flow", "FreeCashFlow"]:
-            if row_name in cf.index:
-                fcf_series = cf.loc[row_name].dropna()
-                if not fcf_series.empty:
-                    fcf_val = float(fcf_series.iloc[0])
-                    break
-    if fcf_val is None:
-        fcf_val = safe(info, "freeCashflow")
+    # Get FCF
+    fcf = info.get("freeCashflow")
+    if fcf is None and cf is not None and not cf.empty:
+        for label in ["Free Cash Flow", "freeCashFlow"]:
+            if label in cf.index:
+                fcf = cf.loc[label].iloc[0]
+                break
+    if fcf is None:
+        fcf = 0.0
 
-    shares_out = safe(info, "sharesOutstanding") or safe(info, "impliedSharesOutstanding") or 1e9
-    cur_price  = safe(info, "currentPrice") or safe(info, "regularMarketPrice", 100)
+    shares_out = info.get("sharesOutstanding") or 1
 
-    col_l, col_r = st.columns([1, 1])
-    with col_l:
-        if fcf_val:
-            st.metric("Poslední Free Cash Flow (TTM)", fmt_num(fcf_val))
-            fcf_input = st.number_input("Upravit FCF (USD)", value=float(fcf_val), step=1e8, format="%.0f")
-        else:
-            st.warning("FCF nenalezeno, zadejte ručně.")
-            fcf_input = st.number_input("FCF (USD)", value=1e9, step=1e8, format="%.0f")
+    st.info(f"**Poslední Free Cash Flow:** {fmt_large(fcf)}  |  **Shares Outstanding:** {shares_out/1e9:.2f}B  |  **Aktuální cena:** ${curr_price:.2f}")
 
-        st.metric("Aktuální cena", f"${cur_price:.2f}")
-        st.metric("Akcií v oběhu", fmt_num(shares_out, 0))
+    # ── DCF CALCULATION ───────────────────────
+    def dcf_model(fcf, growth_r, terminal_gr, disc_r, years=10):
+        if disc_r <= terminal_gr:
+            return None
+        pv = 0.0
+        cf_t = fcf
+        for t in range(1, years + 1):
+            g = growth_r if t <= 5 else terminal_gr
+            cf_t *= (1 + g)
+            pv += cf_t / (1 + disc_r) ** t
+        terminal = cf_t * (1 + terminal_gr) / (disc_r - terminal_gr)
+        pv += terminal / (1 + disc_r) ** years
+        return pv
 
-    # DCF Calculation
-    if fcf_input and shares_out and discount_rate > terminal_rate:
-        # Phase 1: 5 years explicit
-        dcf_values = []
-        fcf_t = fcf_input
-        for t in range(1, 6):
-            fcf_t = fcf_t * (1 + growth_rate)
-            pv = fcf_t / (1 + discount_rate) ** t
-            dcf_values.append({"Rok": f"Rok {t}", "FCF (proj.)": fmt_num(fcf_t), "PV": fmt_num(pv)})
+    if fcf and fcf > 0:
+        total_pv    = dcf_model(fcf, growth_rate, terminal_gr, discount_rate)
+        fair_value  = (total_pv / shares_out) if total_pv else None
+        mos_price   = fair_value * (1 - mos_required) if fair_value else None
 
-        # Phase 2: Terminal value
-        terminal_fcf = fcf_t * (1 + terminal_rate)
-        terminal_val = terminal_fcf / (discount_rate - terminal_rate)
-        pv_terminal  = terminal_val / (1 + discount_rate) ** 5
+        if fair_value:
+            updown = (fair_value - curr_price) / curr_price * 100
+            is_cheap = curr_price <= mos_price
 
-        sum_pv  = sum(fcf_input * (1+growth_rate)**t / (1+discount_rate)**t for t in range(1, 6))
-        intrinsic_total = sum_pv + pv_terminal
-        fair_value  = intrinsic_total / shares_out
-        mos_price   = fair_value * (1 - mos_pct)
-        upside      = (fair_value - cur_price) / cur_price * 100
-        mos_upside  = (mos_price - cur_price) / cur_price * 100
+            c1, c2, c3, c4 = st.columns(4)
+            mcard(c1, "Fair Value (DCF)", f"${fair_value:.2f}")
+            mcard(c2, f"MoS Price ({mos_required*100:.0f}%)", f"${mos_price:.2f}")
+            mcard(c3, "Aktuální Cena", f"${curr_price:.2f}")
+            mcard(c4, "Upside / Downside", f"{'▲' if updown>=0 else '▼'} {abs(updown):.1f}%")
 
-        with col_r:
-            st.metric("Fair Value (DCF)", f"${fair_value:.2f}", f"{upside:+.1f}% vs. tržní cena")
-            st.metric(f"MoS Cena ({mos_pct*100:.0f}% MoS)", f"${mos_price:.2f}", f"{mos_upside:+.1f}% vs. tržní cena")
-            st.metric("Terminální hodnota (PV)", fmt_num(pv_terminal))
-
-            if cur_price <= mos_price:
-                st.markdown('<span class="badge-green">✅ PODHODNOCENÁ – splňuje MoS</span>', unsafe_allow_html=True)
-                verdict = f"Akcie **{ticker}** se obchoduje pod MoS cenou ${mos_price:.2f}, což naznačuje atraktivní vstupní bod pro hodnotového investora."
-            elif cur_price <= fair_value:
-                st.markdown('<span class="badge-yellow">⚠️ SPRAVEDLIVÁ CENA – bez MoS polštáře</span>', unsafe_allow_html=True)
-                verdict = f"Akcie **{ticker}** je blízko fair value (${fair_value:.2f}), ale nenabízí požadovaný bezpečnostní polštář {mos_pct*100:.0f}%."
+            if is_cheap:
+                st.success(f"✅ Akcie **{ticker_input}** se obchoduje POD MoS cenou (${mos_price:.2f}). Potenciálně **PODHODNOCENÁ** dle DCF.")
             else:
-                st.markdown('<span class="badge-red">❌ NADHODNOCENÁ – nesplňuje MoS</span>', unsafe_allow_html=True)
-                verdict = f"Akcie **{ticker}** se obchoduje nad fair value ${fair_value:.2f}. Při požadované MoS {mos_pct*100:.0f}% je vstupní cena příliš vysoká."
-            st.info(verdict)
+                diff = curr_price - mos_price
+                st.error(f"❌ Akcie **{ticker_input}** je o ${diff:.2f} NAD MoS cenou. Dle DCF **NADHODNOCENÁ** nebo bez dostatečného bezpečnostního polštáře.")
 
-        # DCF table + waterfall chart
-        st.markdown("#### Projekce Cash Flow")
-        dcf_df = pd.DataFrame(dcf_values)
-        st.dataframe(dcf_df.set_index("Rok"), use_container_width=True)
+            # Sensitivity table
+            st.markdown('<div class="section-header">📐 Sensitivity tabulka (Fair Value)</div>', unsafe_allow_html=True)
+            growth_range   = [growth_rate - 0.04, growth_rate - 0.02, growth_rate, growth_rate + 0.02, growth_rate + 0.04]
+            discount_range = [discount_rate - 0.02, discount_rate - 0.01, discount_rate, discount_rate + 0.01, discount_rate + 0.02]
+            sens = {}
+            for dr in discount_range:
+                row = {}
+                for gr in growth_range:
+                    if dr > terminal_gr and gr >= 0:
+                        pv = dcf_model(fcf, gr, terminal_gr, dr)
+                        row[f"G={gr*100:.1f}%"] = f"${pv/shares_out:.2f}" if pv else "N/A"
+                    else:
+                        row[f"G={gr*100:.1f}%"] = "N/A"
+                sens[f"D={dr*100:.1f}%"] = row
+            st.dataframe(pd.DataFrame(sens).T, use_container_width=True)
 
-        # Waterfall chart – value composition
-        fig3 = go.Figure(go.Waterfall(
-            orientation="v",
-            measure=["relative"] * 5 + ["relative", "total"],
-            x=[f"Rok {i}" for i in range(1, 6)] + ["Terminální PV", "Celkem"],
-            y=[
-                *[fcf_input*(1+growth_rate)**t/(1+discount_rate)**t for t in range(1,6)],
-                pv_terminal, 0
-            ],
-            connector={"line": {"color": "#2d3148"}},
-            increasing={"marker": {"color": "#4f8ef7"}},
-            decreasing={"marker": {"color": "#ef4444"}},
-            totals={"marker": {"color": "#22c55e"}},
-        ))
-        fig3.update_layout(**plotly_dark_layout(), height=320, title="Složení DCF hodnoty (PV)")
-        st.plotly_chart(fig3, use_container_width=True)
+            # Waterfall chart
+            st.markdown('<div class="section-header">📊 DCF Waterfall</div>', unsafe_allow_html=True)
+            yr_labels, yr_pvs = [], []
+            cf_t = fcf
+            for t in range(1, 11):
+                g = growth_rate if t <= 5 else terminal_gr
+                cf_t *= (1 + g)
+                pv_t = cf_t / (1 + discount_rate) ** t / shares_out
+                yr_labels.append(f"Yr {t}")
+                yr_pvs.append(round(pv_t, 2))
+            tv = (cf_t * (1 + terminal_gr) / (discount_rate - terminal_gr)) / (1 + discount_rate) ** 10 / shares_out
+            yr_labels.append("Terminal")
+            yr_pvs.append(round(tv, 2))
+
+            fig3 = go.Figure(go.Bar(
+                x=yr_labels, y=yr_pvs,
+                marker_color=["#00c4b4"] * 10 + ["#ffd600"],
+                text=[f"${v:.2f}" for v in yr_pvs],
+                textposition="outside",
+            ))
+            fig3.update_layout(
+                paper_bgcolor="#1a1d27", plot_bgcolor="#1a1d27",
+                font_color="#e0e0e0", height=340,
+                margin=dict(l=0, r=0, t=20, b=0),
+                yaxis=dict(title="PV per share ($)", gridcolor="#2a2d3a"),
+                xaxis=dict(gridcolor="#2a2d3a"),
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+        else:
+            st.error("DCF výpočet selhal – zkontroluj discount rate vs terminal growth rate.")
     else:
-        st.error("Nelze vypočítat DCF: zkontrolujte vstupy (discount rate musí být > terminal rate).")
+        st.warning(f"Free Cash Flow pro {ticker_input} není k dispozici nebo je záporný. DCF nelze spočítat.")
 
-# ══════════════════════════════════════════════════════════════════════════════════
-# TAB 4 – FINANCIAL STATEMENTS
-# ══════════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════
+# TAB 4 — FINANCIAL STATEMENTS
+# ══════════════════════════════════════════════
 with tab4:
-    st.markdown('<div class="section-header">📋 Finanční výkazy (4 roky)</div>', unsafe_allow_html=True)
-    s1, s2, s3 = st.tabs(["Income Statement", "Balance Sheet", "Cash Flow"])
+    st.markdown('<div class="section-header">📋 Finanční výkazy (poslední 4 roky)</div>', unsafe_allow_html=True)
 
-    def show_statement(df, name):
+    def show_statement(df, title):
         if df is None or df.empty:
-            st.warning(f"{name} není k dispozici.")
+            st.warning(f"{title}: data nejsou k dispozici.")
             return
-        cols = df.columns[:4]
-        display = df[cols].copy()
-        display.columns = [str(c)[:10] for c in display.columns]
-        display = display.map(lambda x: fmt_num(x, 1) if isinstance(x, (int, float)) and not np.isnan(x) else x)
-        st.dataframe(display, use_container_width=True)
+        df = df.copy()
+        df.columns = [str(c)[:10] for c in df.columns]
+        # Format large numbers
+        df = df.apply(pd.to_numeric, errors="coerce")
+        df = df.map(lambda x: fmt_large(x) if pd.notna(x) else "N/A")
+        st.markdown(f"**{title}**")
+        st.dataframe(df, use_container_width=True)
 
-    with s1: show_statement(data["fin_a"], "Income Statement")
-    with s2: show_statement(data["bal_a"], "Balance Sheet")
-    with s3: show_statement(data["cf_a"],  "Cash Flow")
+    s1, s2, s3 = st.tabs(["Income Statement", "Balance Sheet", "Cash Flow"])
+    with s1: show_statement(inc,  "Income Statement")
+    with s2: show_statement(bal,  "Balance Sheet")
+    with s3: show_statement(cf,   "Cash Flow Statement")
 
-# ── FOOTER ────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# FOOTER
+# ──────────────────────────────────────────────
 st.markdown("---")
-st.caption("⚠️ Tato aplikace neposkytuje investiční poradenství. Data: yfinance. AI: Claude (Anthropic). Vždy provádějte vlastní due diligence.")
+st.markdown(
+    "<small style='color:#555'>⚠️ Tato aplikace slouží pouze k informačním účelům a nepředstavuje investiční poradenství. "
+    "Veškerá data pochází z veřejných zdrojů (yfinance). Investujte na vlastní riziko.</small>",
+    unsafe_allow_html=True
+)
