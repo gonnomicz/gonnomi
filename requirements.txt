@@ -3,3 +3,4 @@ yfinance
 pandas
 plotly
 anthropic
+curl_cffi
