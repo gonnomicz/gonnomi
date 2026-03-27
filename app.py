@@ -210,19 +210,24 @@ if "tr_selected" not in st.session_state:
 # ──────────────────────────────────────────────
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_ticker(ticker: str):
+    """
+    Vrací POUZE serializovatelná data (dict, DataFrame, Series).
+    Objekt yf.Ticker() se vytvoří lokálně, data se vytáhnou a objekt se zahodí.
+    """
     try:
-        t = yf.Ticker(ticker.upper())
+        t = yf.Ticker(ticker.upper())          # lokální objekt – NIKDY se nevrací
         info = t.info
         if not info or (not info.get("regularMarketPrice") and not info.get("currentPrice")):
-            return None, None, None, None, None, None
-        inc    = t.financials
-        bal    = t.balance_sheet
-        cf     = t.cashflow
-        shares = t.get_shares_full(start="2018-01-01")
-        return info, inc, bal, cf, shares, t
+            return None, None, None, None, None
+        inc    = t.financials                  # DataFrame
+        bal    = t.balance_sheet               # DataFrame
+        cf     = t.cashflow                    # DataFrame
+        shares = t.get_shares_full(start="2018-01-01")  # Series / DataFrame
+        # t je zde zahozeno – garbage collector ho uvolní
+        return info, inc, bal, cf, shares
     except Exception as e:
         st.error(f"Chyba při stahování dat: {e}")
-        return None, None, None, None, None, None
+        return None, None, None, None, None
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_hist(ticker: str, period: str, interval: str):
@@ -233,7 +238,7 @@ def load_hist(ticker: str, period: str, interval: str):
         return pd.DataFrame()
 
 with st.spinner(f"Načítám data pro **{ticker_input}**…"):
-    info, inc, bal, cf, shares_full, _t = load_ticker(ticker_input)
+    info, inc, bal, cf, shares_full = load_ticker(ticker_input)
 
 if info is None:
     st.error("Ticker nenalezen nebo data nejsou k dispozici.")
